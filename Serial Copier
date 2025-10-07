@@ -1,0 +1,87 @@
+import re
+from pathlib import Path
+
+# --- CONFIG ---
+source_file = Path("eagle_log.txt")
+output_file = Path("eagle_log_modified.txt")
+
+# Map of originals -> variants to create (you can add more than one)
+serial_map = {
+    "261": "1261",
+    # "987": "1987",
+    # "555": "1555",
+}
+
+# If True, also replace exact matches of the old serial everywhere in the block,
+# not just the header line. Safer to keep False unless you know you want this.
+replace_everywhere_in_block = False
+# --- END CONFIG ---
+
+
+# Regex to detect the start of a block and capture the serial number.
+# Example header: "Datalog for Serial #: 261, Site ..."
+HEADER_RE = re.compile(r"^(Datalog for Serial #:\s*)(\d+)(\s*,\s*Site\b.*)$")
+
+def process_file(src: Path, dst: Path):
+    with src.open("r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    out = []
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
+        m = HEADER_RE.match(line)
+
+        if not m:
+            # Not a header; just pass through
+            out.append(line)
+            i += 1
+            continue
+
+        # We found a header; start collecting the whole block
+        header_prefix, serial, header_suffix = m.groups()
+        block = [line]
+        i += 1
+
+        # Collect lines until a blank line (end of block) or EOF
+        while i < n:
+            block.append(lines[i])
+            if lines[i].strip() == "":
+                i += 1
+                break
+            i += 1
+
+        # Always write the original block
+        out.extend(block)
+
+        # If this serial is one we want to duplicate with a variant, do it
+        if serial in serial_map:
+            new_serial = serial_map[serial]
+
+            # Duplicate and modify block
+            dup = []
+            # Fix header line (safe + exact)
+            new_header = f"{header_prefix}{new_serial}{header_suffix}"
+            dup.append(new_header)
+
+            # Copy remaining lines with optional replacements
+            if replace_everywhere_in_block:
+                # Replace exact whole-number occurrences only (avoid 261 inside 1261)
+                pat = re.compile(rf"\b{re.escape(serial)}\b")
+                for bline in block[1:]:
+                    dup.append(pat.sub(new_serial, bline))
+            else:
+                dup.extend(block[1:])
+
+            out.extend(dup)
+
+    with dst.open("w", encoding="utf-8") as f:
+        f.writelines(out)
+
+    print(f"Done. Wrote {dst}.")
+
+
+if __name__ == "__main__":
+    process_file(source_file, output_file)
