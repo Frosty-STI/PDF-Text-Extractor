@@ -1,87 +1,79 @@
 import re
-from pathlib import Path
 
 # --- CONFIG ---
-source_file = Path("eagle_log.txt")
-output_file = Path("eagle_log_modified.txt")
+source_file = r"C:\full\path\to\eagle_log.txt"
+output_file = r"C:\full\path\to\eagle_log_modified.txt"
 
-# Map of originals -> variants to create (you can add more than one)
+# Map of originals -> variants
 serial_map = {
     "261": "1261",
-    # "987": "1987",
-    # "555": "1555",
+    # add more if needed
 }
 
-# If True, also replace exact matches of the old serial everywhere in the block,
-# not just the header line. Safer to keep False unless you know you want this.
+# If True, also replace exact matches of old serial inside the block
 replace_everywhere_in_block = False
 # --- END CONFIG ---
 
 
-# Regex to detect the start of a block and capture the serial number.
-# Example header: "Datalog for Serial #: 261, Site ..."
-HEADER_RE = re.compile(r"^(Datalog for Serial #:\s*)(\d+)(\s*,\s*Site\b.*)$")
+# Regex for block header: e.g. "Datalog for Serial#: 261"
+HEADER_RE = re.compile(r"^(Datalog for Serial#:\s*)(\d+)(.*)$")
 
-def process_file(src: Path, dst: Path):
-    with src.open("r", encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
+with open(source_file, "r", encoding="utf-8", errors="replace") as f:
+    lines = f.readlines()
 
-    out = []
-    i = 0
-    n = len(lines)
+out = []
+i = 0
+n = len(lines)
 
+while i < n:
+    line = lines[i]
+    m = HEADER_RE.match(line)
+
+    if not m:
+        # Not a header, just copy it
+        out.append(line)
+        i += 1
+        continue
+
+    # We found a header, start collecting block
+    header_prefix, serial, header_suffix = m.groups()
+    block = [line]
+    i += 1
+
+    # Collect until blank line or EOF
     while i < n:
-        line = lines[i]
-        m = HEADER_RE.match(line)
-
-        if not m:
-            # Not a header; just pass through
-            out.append(line)
+        block.append(lines[i])
+        if lines[i].strip() == "":
             i += 1
-            continue
-
-        # We found a header; start collecting the whole block
-        header_prefix, serial, header_suffix = m.groups()
-        block = [line]
+            break
         i += 1
 
-        # Collect lines until a blank line (end of block) or EOF
-        while i < n:
-            block.append(lines[i])
-            if lines[i].strip() == "":
-                i += 1
-                break
-            i += 1
+    # Write original block
+    out.extend(block)
 
-        # Always write the original block
-        out.extend(block)
+    # Duplicate if serial is in our map
+    if serial in serial_map:
+        new_serial = serial_map[serial]
 
-        # If this serial is one we want to duplicate with a variant, do it
-        if serial in serial_map:
-            new_serial = serial_map[serial]
+        # Add a blank line before duplicate (so there’s spacing)
+        if out and out[-1].strip() != "":
+            out.append("\n")
 
-            # Duplicate and modify block
-            dup = []
-            # Fix header line (safe + exact)
-            new_header = f"{header_prefix}{new_serial}{header_suffix}"
-            dup.append(new_header)
+        dup = []
+        # Replace header safely
+        new_header = f"{header_prefix}{new_serial}{header_suffix}"
+        dup.append(new_header + "\n")
 
-            # Copy remaining lines with optional replacements
-            if replace_everywhere_in_block:
-                # Replace exact whole-number occurrences only (avoid 261 inside 1261)
-                pat = re.compile(rf"\b{re.escape(serial)}\b")
-                for bline in block[1:]:
-                    dup.append(pat.sub(new_serial, bline))
-            else:
-                dup.extend(block[1:])
+        if replace_everywhere_in_block:
+            pat = re.compile(rf"\b{re.escape(serial)}\b")
+            for bline in block[1:]:
+                dup.append(pat.sub(new_serial, bline))
+        else:
+            dup.extend(block[1:])
 
-            out.extend(dup)
+        out.extend(dup)
 
-    with dst.open("w", encoding="utf-8") as f:
-        f.writelines(out)
+with open(output_file, "w", encoding="utf-8") as f:
+    f.writelines(out)
 
-    print(f"Done. Wrote {dst}.")
-
-
-if __name__ == "__main__":
-    process_file(source_file, output_file)
+print(f"Done. Wrote {output_file}")
