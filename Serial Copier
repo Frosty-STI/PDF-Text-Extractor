@@ -1,79 +1,122 @@
 import re
 
-# --- CONFIG ---
+# =========================
+# CONFIG
+# =========================
+# Use plain strings for paths (works on Windows if you use raw strings r"...").
 source_file = r"C:\full\path\to\eagle_log.txt"
 output_file = r"C:\full\path\to\eagle_log_modified.txt"
 
-# Map of originals -> variants
+# Map each original serial to one or more new serials.
+# Example: 261 -> 1261, 2261, 3261
 serial_map = {
-    "261": "1261",
-    # add more if needed
+    "261": ["1261", "2261", "3261"],
+    # "555": ["1555", "2555"],
 }
 
-# If True, also replace exact matches of old serial inside the block
+# If True, also replace the old serial everywhere INSIDE the block (exact number matches only).
+# If False, only the header line's serial is changed.
 replace_everywhere_in_block = False
-# --- END CONFIG ---
+# =========================
 
 
-# Regex for block header: e.g. "Datalog for Serial#: 261"
+# Header regex: matches lines like "Datalog for Serial#: 261" and captures the prefix, serial, and suffix.
 HEADER_RE = re.compile(r"^(Datalog for Serial#:\s*)(\d+)(.*)$")
 
-with open(source_file, "r", encoding="utf-8", errors="replace") as f:
-    lines = f.readlines()
 
-out = []
-i = 0
-n = len(lines)
+def ensure_trailing_blank_lines(out_lines, desired_blank_count=2):
+    """
+    Ensure the output currently ends with exactly `desired_blank_count` blank lines.
+    (A 'blank line' means line.strip() == "")
 
-while i < n:
-    line = lines[i]
-    m = HEADER_RE.match(line)
-
-    if not m:
-        # Not a header, just copy it
-        out.append(line)
-        i += 1
-        continue
-
-    # We found a header, start collecting block
-    header_prefix, serial, header_suffix = m.groups()
-    block = [line]
-    i += 1
-
-    # Collect until blank line or EOF
-    while i < n:
-        block.append(lines[i])
-        if lines[i].strip() == "":
-            i += 1
-            break
-        i += 1
-
-    # Write original block
-    out.extend(block)
-
-    # Duplicate if serial is in our map
-    if serial in serial_map:
-        new_serial = serial_map[serial]
-
-        # Add a blank line before duplicate (so there’s spacing)
-        if out and out[-1].strip() != "":
-            out.append("\n")
-
-        dup = []
-        # Replace header safely
-        new_header = f"{header_prefix}{new_serial}{header_suffix}"
-        dup.append(new_header + "\n")
-
-        if replace_everywhere_in_block:
-            pat = re.compile(rf"\b{re.escape(serial)}\b")
-            for bline in block[1:]:
-                dup.append(pat.sub(new_serial, bline))
+    This function appends the minimum needed number of '\n' lines so that
+    the trailing blank-line count equals desired_blank_count.
+    """
+    # Count how many blank lines currently at the end
+    count = 0
+    for line in reversed(out_lines):
+        if line.strip() == "":
+            count += 1
         else:
-            dup.extend(block[1:])
+            break
 
-        out.extend(dup)
+    # Append as many as needed to reach the desired count
+    to_add = max(0, desired_blank_count - count)
+    out_lines.extend(["\n"] * to_add)
 
-with open(output_file, "w", encoding="utf-8") as f:
-    f.writelines(out)
 
-print(f"Done. Wrote {output_file}")
+def main():
+    with open(source_file, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+
+    out = []
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
+        m = HEADER_RE.match(line)
+
+        if not m:
+            # Not a header; pass through
+            out.append(line)
+            i += 1
+            continue
+
+        # Found a header -> start collecting this block
+        header_prefix, serial, header_suffix = m.groups()
+        block = [line]
+        i += 1
+
+        # Collect lines until a blank line or EOF
+        while i < n:
+            block.append(lines[i])
+            if lines[i].strip() == "":   # blank line marks end-of-block
+                i += 1
+                break
+            i += 1
+
+        # 1) Write the original block as-is
+        out.extend(block)
+
+        # 2) For any requested variants, write duplicates
+        if serial in serial_map:
+            targets = serial_map[serial]
+            if isinstance(targets, str):
+                targets = [targets]
+
+            # Pre-compile exact-match pattern for in-block replacements (if enabled)
+            pat = None
+            if replace_everywhere_in_block:
+                pat = re.compile(rf"\b{re.escape(serial)}\b")
+
+            for new_serial in targets:
+                # Ensure exactly TWO blank lines separate from the previous block/duplicate
+                ensure_trailing_blank_lines(out, desired_blank_count=2)
+
+                dup = []
+
+                # Rewrite header safely
+                new_header = f"{header_prefix}{new_serial}{header_suffix}"
+                # Make sure header ends with a newline
+                if not new_header.endswith("\n"):
+                    new_header += "\n"
+                dup.append(new_header)
+
+                # Copy rest of the block. Optionally replace exact serial matches inside.
+                if replace_everywhere_in_block and pat is not None:
+                    for bline in block[1:]:
+                        dup.append(pat.sub(new_serial, bline))
+                else:
+                    dup.extend(block[1:])
+
+                out.extend(dup)
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.writelines(out)
+
+    print(f"Done. Wrote {output_file}")
+
+
+if __name__ == "__main__":
+    main()
