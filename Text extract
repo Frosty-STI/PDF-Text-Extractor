@@ -1,0 +1,11 @@
+Please write a Python script using pandas to integrate specification limits from one Excel file into another.
+	1.	The first Excel file, called ‘Starfish,’ contains spec limits for test groups. Each row is a group name and its spec limit (e.g., ‘Quiescent Current’ with a limit).
+	2.	The second Excel file contains individual test rows. Each test row has a test name and a group it belongs to (for example, ‘Quiescent Current @ 5V’ belongs to the ‘Quiescent Current’ group).
+
+The script should:
+	•	Load the ‘Starfish’ file and map each test group to its spec limit.
+	•	Load the second file. Each row specifies which group it belongs to.
+	•	For each row in the second file, add a new column that inserts the matching spec limit based on the group. If a test belongs to ‘Quiescent Current,’ it should pull the spec limit from that group.
+	•	Save the second file with a new column that includes the appropriate spec limit for each row.
+
+The code should handle any missing groups gracefully (e.g., warn if a group is in the tests but not in ‘Starfish’). Use pandas, and assume file paths are given (you can just call them ‘starfish.xlsx’ and ‘tests.xlsx’)
